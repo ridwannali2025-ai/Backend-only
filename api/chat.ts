@@ -1,91 +1,84 @@
-import { openai } from "../lib/openai";
+import { env } from "../lib/env";
+import { ROUTE_GUARDRAILS, isPayloadTooLarge } from "../lib/route-guardrails";
+import { checkRateLimitMiddleware } from "../lib/rate-limit";
+import { ok, fail } from "../lib/response";
 
 export const config = { runtime: "edge" };
 
-type ChatRole = "user" | "assistant" | "system";
-
-interface ChatMessage {
-  role: ChatRole;
-  content: string;
-}
-
-interface ChatRequestBody {
-  userId: string;
-  messages: ChatMessage[];
+interface ChatRequest {
+  userId?: string;
+  messages?: Array<{ role: string; content: string }>;
   goal?: string;
   phase?: string;
   summary?: string;
 }
 
-interface ChatResponseBody {
-  id: string;
-  role: "assistant";
-  content: string;
-  timestamp: string;
-}
-
-const systemPrompt = `You are a personalized fitness coach. Give concise, actionable replies that respect the user's goal, training phase, and any constraints. Keep tone supportive and direct. Avoid medical advice beyond general guidance.`;
+const ROUTE = "/api/chat";
+const { maxBodyBytes, maxOutputTokens } = ROUTE_GUARDRAILS[ROUTE];
 
 export default async function handler(req: Request): Promise<Response> {
+  // Handle OPTIONS for CORS preflight
+  if (req.method === "OPTIONS") {
+    return new Response(null, {
+      status: 204,
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type",
+      },
+    });
+  }
+
+  // Only allow POST
   if (req.method !== "POST") {
-    return new Response(JSON.stringify({ error: "Only POST allowed" }), {
-      status: 405,
-      headers: { "Content-Type": "application/json" },
-    });
+    return fail(ROUTE, "method_not_allowed", "Only POST method allowed", 405);
   }
 
-  let body: ChatRequestBody;
+  if (!env.AI_ENABLED) {
+    return fail(
+      ROUTE,
+      "service_unavailable",
+      "AI features are temporarily unavailable. Please try again later.",
+      503
+    );
+  }
+
+  if (!env.AI_CHAT_ENABLED) {
+    return fail(
+      ROUTE,
+      "service_unavailable",
+      "Chat is temporarily unavailable. Please try again later.",
+      503
+    );
+  }
+
+  if (isPayloadTooLarge(req, maxBodyBytes)) {
+    return fail(
+      ROUTE,
+      "payload_too_large",
+      "Request body exceeds size limit.",
+      413
+    );
+  }
+
+  // Check rate limit
+  const rateLimitResponse = await checkRateLimitMiddleware(ROUTE, req);
+  if (rateLimitResponse) {
+    return rateLimitResponse;
+  }
+
+  // Parse JSON body safely
+  let body: ChatRequest;
   try {
-    body = (await req.json()) as ChatRequestBody;
+    body = (await req.json()) as ChatRequest;
   } catch {
-    return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
-      status: 400,
-      headers: { "Content-Type": "application/json" },
-    });
+    return fail(ROUTE, "bad_request", "Invalid JSON body", 400);
   }
 
-  if (!body?.userId || !body?.messages || !Array.isArray(body.messages)) {
-    return new Response(JSON.stringify({ error: "Missing userId or messages" }), {
-      status: 400,
-      headers: { "Content-Type": "application/json" },
-    });
-  }
-
-  try {
-    const contextParts = [
-      body.goal ? `Goal: ${body.goal}` : null,
-      body.phase ? `Phase: ${body.phase}` : null,
-      body.summary ? `Program: ${body.summary}` : null,
-    ].filter(Boolean);
-
-    const contextMessage: ChatMessage = {
-      role: "system",
-      content: `${systemPrompt}${contextParts.length ? `\nContext:\n${contextParts.join("\n")}` : ""}`,
-    };
-
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      temperature: 0.4,
-      messages: [contextMessage, ...body.messages],
-    });
-
-    const content = completion.choices[0]?.message?.content ?? "Let’s keep going—how can I help?";
-    const responseBody: ChatResponseBody = {
-      id: crypto.randomUUID(),
-      role: "assistant",
-      content,
-      timestamp: new Date().toISOString(),
-    };
-
-    return new Response(JSON.stringify(responseBody), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    });
-  } catch (error) {
-    console.error("Chat route error:", error);
-    return new Response(JSON.stringify({ error: "Chat failed" }), {
-      status: 500,
-      headers: { "Content-Type": "application/json" },
-    });
-  }
+  // Phase 4A: Return stub response (non-streaming stub)
+  return ok(ROUTE, {
+    status: "stub",
+    message: "chat wired",
+    reply: "stub reply",
+  });
 }

@@ -5,25 +5,14 @@ import { ok, fail } from "../lib/response";
 
 export const config = { runtime: "edge" };
 
-interface ProgramRequest {
-  goal?: string;
-  timelineMonths?: number;
-  heightCm?: number;
-  weightKg?: number;
-  age?: number;
-  sex?: string;
-  activityLevel?: string;
-  daysPerWeek?: number;
-  experience?: string;
-  hasInjuries?: boolean;
-  injuryDetails?: string;
-  dietaryRestrictions?: string[];
-  avoidFoods?: string[];
-  pastBlockers?: string[];
-  notesFromChat?: string;
+interface AnalyzeProgressRequest {
+  userId?: string;
+  startDate?: string;
+  endDate?: string;
+  metrics?: string[];
 }
 
-const ROUTE = "/api/generate-program";
+const ROUTE = "/api/analyze-progress";
 const { maxBodyBytes, maxOutputTokens } = ROUTE_GUARDRAILS[ROUTE];
 
 export default async function handler(req: Request): Promise<Response> {
@@ -69,9 +58,9 @@ export default async function handler(req: Request): Promise<Response> {
   }
 
   // Parse JSON body safely
-  let body: ProgramRequest;
+  let body: AnalyzeProgressRequest;
   try {
-    body = (await req.json()) as ProgramRequest;
+    body = (await req.json()) as AnalyzeProgressRequest;
   } catch {
     return fail(ROUTE, "bad_request", "Invalid JSON body", 400);
   }
@@ -79,7 +68,7 @@ export default async function handler(req: Request): Promise<Response> {
   // Phase 4A: Return stub response
   return ok(ROUTE, {
     status: "stub",
-    message: "generate-program wired",
-    program_version: 1,
+    message: "analyze-progress wired",
+    insight: "stub",
   });
 }
