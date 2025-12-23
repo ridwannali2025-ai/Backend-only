@@ -20,6 +20,13 @@ export const env = {
   AI_CHAT_ENABLED: parseBoolean(process.env.AI_CHAT_ENABLED, true),
   UPSTASH_REDIS_REST_URL: process.env.UPSTASH_REDIS_REST_URL as string,
   UPSTASH_REDIS_REST_TOKEN: process.env.UPSTASH_REDIS_REST_TOKEN as string,
+  SUPABASE_URL: process.env.SUPABASE_URL as string,
+  SUPABASE_ANON_KEY: process.env.SUPABASE_ANON_KEY as string,
+  MODEL_BRAIN: process.env.MODEL_BRAIN as string,
+  MODEL_PLANNER: process.env.MODEL_PLANNER as string,
+  MODEL_MOUTH: process.env.MODEL_MOUTH as string,
+  MODEL_ANALYST: process.env.MODEL_ANALYST as string,
+  MODEL_FALLBACK: process.env.MODEL_FALLBACK as string,
 };
 
 // Only throw if AI is enabled but key is missing (skip during verification)
@@ -30,8 +37,6 @@ if (env.AI_ENABLED && !env.OPENAI_API_KEY) {
     throw new Error("Missing OPENAI_API_KEY in environment");
   }
 }
-
-
 
 
 

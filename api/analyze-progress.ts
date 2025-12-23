@@ -1,6 +1,8 @@
 import { env } from "../lib/env";
 import { ROUTE_GUARDRAILS, isPayloadTooLarge } from "../lib/route-guardrails";
 import { checkRateLimitMiddleware } from "../lib/rate-limit";
+import { loadContext } from "../lib/context";
+import { selectModel, type ModelTier, type TaskType } from "../lib/model-router";
 import { ok, fail } from "../lib/response";
 
 export const config = { runtime: "edge" };
@@ -13,7 +15,9 @@ interface AnalyzeProgressRequest {
 }
 
 const ROUTE = "/api/analyze-progress";
-const { maxBodyBytes, maxOutputTokens } = ROUTE_GUARDRAILS[ROUTE];
+const { maxBodyBytes } = ROUTE_GUARDRAILS[ROUTE];
+const TASK_TYPE: TaskType = "analyze_progress";
+const MODEL_TIER: ModelTier = "analyst";
 
 export default async function handler(req: Request): Promise<Response> {
   // Handle OPTIONS for CORS preflight
@@ -57,18 +61,38 @@ export default async function handler(req: Request): Promise<Response> {
     return rateLimitResponse;
   }
 
+  const context = await loadContext({ req, route: ROUTE });
+  const contextSummary = {
+    program_present: Boolean(context.active_program),
+    sessions_14d_count: context.workouts_14d.sessions.length,
+    sets_14d_count: context.workouts_14d.sets.length,
+    meals_7d_count: context.meals_7d.length,
+    weight_30d_count: context.weight_30d.length,
+  };
+  const selection = selectModel({ route: ROUTE, taskType: TASK_TYPE, tier: MODEL_TIER });
+  const FALLBACK_MODEL = selection.fallbackModel;
+  const MAX_OUTPUT_TOKENS = selection.maxOutputTokens;
+
   // Parse JSON body safely
   let body: AnalyzeProgressRequest;
   try {
     body = (await req.json()) as AnalyzeProgressRequest;
   } catch {
-    return fail(ROUTE, "bad_request", "Invalid JSON body", 400);
+    return fail(ROUTE, "bad_request", "Invalid JSON body", 400, {
+      model_used: selection.modelUsed,
+    });
   }
 
   // Phase 4A: Return stub response
-  return ok(ROUTE, {
-    status: "stub",
-    message: "analyze-progress wired",
-    insight: "stub",
-  });
+  return ok(
+    ROUTE,
+    {
+      stub: true,
+      model_tier: MODEL_TIER,
+      task_type: TASK_TYPE,
+      max_output_tokens: MAX_OUTPUT_TOKENS,
+      context_summary: contextSummary,
+    },
+    { model_used: selection.modelUsed }
+  );
 }
