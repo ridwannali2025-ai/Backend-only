@@ -3,6 +3,7 @@ import { ROUTE_GUARDRAILS, isPayloadTooLarge } from "../lib/route-guardrails";
 import { checkRateLimitMiddleware } from "../lib/rate-limit";
 import { loadContext } from "../lib/context";
 import { selectModel, type ModelTier, type TaskType } from "../lib/model-router";
+import { evaluateSafety } from "../lib/safety-guardrails";
 import { ok, fail } from "../lib/response";
 
 export const config = { runtime: "edge" };
@@ -83,6 +84,13 @@ export default async function handler(req: Request): Promise<Response> {
     });
   }
 
+  const safety = evaluateSafety({ route: ROUTE, taskType: TASK_TYPE, body });
+  if (!safety.allowed) {
+    return fail(ROUTE, safety.code, safety.message, 422, {
+      model_used: selection.modelUsed,
+    });
+  }
+
   // Phase 4A: Return stub response
   return ok(
     ROUTE,
@@ -90,7 +98,10 @@ export default async function handler(req: Request): Promise<Response> {
       stub: true,
       model_tier: MODEL_TIER,
       task_type: TASK_TYPE,
+      fallback_model: FALLBACK_MODEL,
       max_output_tokens: MAX_OUTPUT_TOKENS,
+      changes_made: false,
+      reason_for_change: "No changes applied in stub response.",
       context_summary: contextSummary,
     },
     { model_used: selection.modelUsed }
