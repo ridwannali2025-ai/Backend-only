@@ -1,0 +1,21 @@
+# Vercel ignore file
+# Exclude iOS project files from deployment
+
+phantomAI/
+phantomAI.xcodeproj/
+phantomAITests/
+phantomAIUITests/
+*.xcodeproj
+*.xcworkspace
+*.swift
+*.swiftpm
+xcuserdata/
+.DS_Store
+
+# Keep backend files
+!api/
+!package.json
+!README.md
+!tsconfig.json
+!src/
+
