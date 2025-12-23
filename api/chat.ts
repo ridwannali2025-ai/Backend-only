@@ -1,9 +1,10 @@
 import { env } from "../lib/env";
 import { ROUTE_GUARDRAILS, isPayloadTooLarge } from "../lib/route-guardrails";
 import { checkRateLimitMiddleware } from "../lib/rate-limit";
-import { loadContext } from "../lib/context";
 import { selectModel, type ModelTier, type TaskType } from "../lib/model-router";
+import { evaluateSafety } from "../lib/safety-guardrails";
 import { ok, fail } from "../lib/response";
+import { getUserIdFromRequest } from "../lib/supabase";
 
 export const config = { runtime: "edge" };
 
@@ -71,17 +72,7 @@ export default async function handler(req: Request): Promise<Response> {
     return rateLimitResponse;
   }
 
-  const context = await loadContext({ req, route: ROUTE });
-  const contextSummary = {
-    program_present: Boolean(context.active_program),
-    sessions_14d_count: context.workouts_14d.sessions.length,
-    sets_14d_count: context.workouts_14d.sets.length,
-    meals_7d_count: context.meals_7d.length,
-    weight_30d_count: context.weight_30d.length,
-  };
   const selection = selectModel({ route: ROUTE, taskType: TASK_TYPE, tier: MODEL_TIER });
-  const FALLBACK_MODEL = selection.fallbackModel;
-  const MAX_OUTPUT_TOKENS = selection.maxOutputTokens;
 
   // Parse JSON body safely
   let body: ChatRequest;
@@ -93,15 +84,55 @@ export default async function handler(req: Request): Promise<Response> {
     });
   }
 
+  if (!Array.isArray(body.messages)) {
+    return fail(ROUTE, "bad_request", "messages must be an array.", 400, {
+      model_used: selection.modelUsed,
+    });
+  }
+
+  const invalidMessage = body.messages.find((message) => {
+    if (!message || typeof message !== "object") {
+      return true;
+    }
+    return typeof message.role !== "string" || typeof message.content !== "string";
+  });
+  if (invalidMessage) {
+    return fail(
+      ROUTE,
+      "bad_request",
+      "messages must be an array of { role, content } objects.",
+      400,
+      { model_used: selection.modelUsed }
+    );
+  }
+
+  const headerUserId = getUserIdFromRequest(req);
+  const bodyUserId = typeof body.userId === "string" ? body.userId.trim() : "";
+  const resolvedUserId = headerUserId ?? (bodyUserId.length > 0 ? bodyUserId : null);
+  if (!resolvedUserId) {
+    return fail(
+      ROUTE,
+      "bad_request",
+      "Missing user identity. Provide Authorization Bearer token, x-user-id header, or body.userId.",
+      400,
+      { model_used: selection.modelUsed }
+    );
+  }
+
+  const safety = evaluateSafety({ route: ROUTE, taskType: TASK_TYPE, body });
+  if (!safety.allowed) {
+    return fail(ROUTE, safety.code, safety.message, 422, {
+      model_used: selection.modelUsed,
+    });
+  }
+
   // Phase 4A: Return stub response (non-streaming stub)
   return ok(
     ROUTE,
     {
-      stub: true,
-      model_tier: MODEL_TIER,
-      task_type: TASK_TYPE,
-      max_output_tokens: MAX_OUTPUT_TOKENS,
-      context_summary: contextSummary,
+      reply: "ok",
+      received_messages_count: body.messages.length,
+      user_id: resolvedUserId,
     },
     { model_used: selection.modelUsed }
   );
