@@ -2,6 +2,8 @@
 
 Backend API for Phantom AI - a personalized fitness and nutrition program generator.
 
+<!-- deploy trigger -->
+
 ## Deployment
 
 This backend is deployed on **Vercel** as serverless Edge functions.
