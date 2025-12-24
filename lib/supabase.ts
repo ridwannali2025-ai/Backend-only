@@ -94,3 +94,20 @@ export async function safeSelect<T>(
     return null;
   }
 }
+
+/**
+ * Create an admin Supabase client using service role key
+ * This client bypasses RLS and is used for server-side operations like logging
+ */
+export function createAdminSupabaseClient() {
+  if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) {
+    return null;
+  }
+
+  return createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  });
+}

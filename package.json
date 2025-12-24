@@ -8,7 +8,8 @@
     "verify:phase4": "npm run build && tsx scripts/verify-phase4.ts",
     "verify:phase4c": "npm run build && tsx scripts/verify-phase4c.ts",
     "verify:phase4d": "npm run build && tsx scripts/verify-phase4d.ts",
-    "verify:phase4e": "npm run build && tsx scripts/verify-phase4e.ts"
+    "verify:phase4e": "npm run build && tsx scripts/verify-phase4e.ts",
+    "verify:phase4f": "npm run build && tsx scripts/verify-phase4f.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.89.0",

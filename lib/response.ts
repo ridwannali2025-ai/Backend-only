@@ -47,10 +47,11 @@ export function jsonResponse(envelope: ResponseEnvelope, status: number = 200): 
 export function ok(
   route: string,
   result: any,
-  meta?: ResponseMeta
+  meta?: ResponseMeta,
+  requestId?: string
 ): Response {
   const envelope: ResponseEnvelope = {
-    request_id: generateRequestId(),
+    request_id: requestId ?? generateRequestId(),
     route,
     model_used: meta?.model_used ?? null,
     tokens_in: meta?.tokens_in ?? null,
@@ -70,10 +71,11 @@ export function fail(
   code: string,
   message: string,
   status: number = 400,
-  meta?: ResponseMeta
+  meta?: ResponseMeta,
+  requestId?: string
 ): Response {
   const envelope: ResponseEnvelope = {
-    request_id: generateRequestId(),
+    request_id: requestId ?? generateRequestId(),
     route,
     model_used: meta?.model_used ?? null,
     tokens_in: meta?.tokens_in ?? null,

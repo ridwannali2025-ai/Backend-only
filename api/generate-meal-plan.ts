@@ -4,7 +4,9 @@ import { checkRateLimitMiddleware } from "../lib/rate-limit";
 import { loadContext } from "../lib/context";
 import { selectModel, type ModelTier, type TaskType } from "../lib/model-router";
 import { evaluateSafety } from "../lib/safety-guardrails";
-import { ok, fail } from "../lib/response";
+import { ok, fail, generateRequestId } from "../lib/response";
+import { logRequestStart, logRequestEnd, getEnvironment } from "../lib/logger";
+import { getUserIdFromRequest } from "../lib/supabase";
 
 export const config = { runtime: "edge" };
 
@@ -37,32 +39,107 @@ export default async function handler(req: Request): Promise<Response> {
     });
   }
 
+  // Generate request_id and start timer early
+  const requestId = generateRequestId();
+  const startTime = logRequestStart();
+  const userId = getUserIdFromRequest(req);
+  const environment = getEnvironment();
+
+  try {
   // Only allow POST
   if (req.method !== "POST") {
-    return fail(ROUTE, "method_not_allowed", "Only POST method allowed", 405);
+    const latencyMs = Date.now() - startTime;
+    await logRequestEnd({
+      requestId,
+      route: ROUTE,
+      userId,
+      environment,
+      modelUsed: null,
+      tokensIn: null,
+      tokensOut: null,
+      costEstimateUsd: null,
+      status: "bad_request",
+      httpStatus: 405,
+      latencyMs,
+      errorCode: "method_not_allowed",
+      errorMessage: "Only POST method allowed",
+    });
+    return fail(ROUTE, "method_not_allowed", "Only POST method allowed", 405, undefined, requestId);
   }
 
   if (!env.AI_ENABLED) {
+    const latencyMs = Date.now() - startTime;
+    await logRequestEnd({
+      requestId,
+      route: ROUTE,
+      userId,
+      environment,
+      modelUsed: null,
+      tokensIn: null,
+      tokensOut: null,
+      costEstimateUsd: null,
+      status: "guardrail_block",
+      httpStatus: 503,
+      latencyMs,
+      errorCode: "service_unavailable",
+      errorMessage: "AI features are temporarily unavailable. Please try again later.",
+    });
     return fail(
       ROUTE,
       "service_unavailable",
       "AI features are temporarily unavailable. Please try again later.",
-      503
+      503,
+      undefined,
+      requestId
     );
   }
 
   if (isPayloadTooLarge(req, maxBodyBytes)) {
+    const latencyMs = Date.now() - startTime;
+    await logRequestEnd({
+      requestId,
+      route: ROUTE,
+      userId,
+      environment,
+      modelUsed: null,
+      tokensIn: null,
+      tokensOut: null,
+      costEstimateUsd: null,
+      status: "guardrail_block",
+      httpStatus: 413,
+      latencyMs,
+      errorCode: "payload_too_large",
+      errorMessage: "Request body exceeds size limit.",
+    });
     return fail(
       ROUTE,
       "payload_too_large",
       "Request body exceeds size limit.",
-      413
+      413,
+      undefined,
+      requestId
     );
   }
 
   // Check rate limit
   const rateLimitResponse = await checkRateLimitMiddleware(ROUTE, req);
   if (rateLimitResponse) {
+    const latencyMs = Date.now() - startTime;
+    await logRequestEnd({
+      requestId,
+      route: ROUTE,
+      userId,
+      environment,
+      modelUsed: null,
+      tokensIn: null,
+      tokensOut: null,
+      costEstimateUsd: null,
+      status: "rate_limited",
+      httpStatus: 429,
+      latencyMs,
+      errorCode: "rate_limit_exceeded",
+      errorMessage: "Rate limit exceeded",
+    });
     return rateLimitResponse;
   }
 
@@ -83,19 +160,67 @@ export default async function handler(req: Request): Promise<Response> {
   try {
     body = (await req.json()) as MealPlanRequest;
   } catch {
+    const latencyMs = Date.now() - startTime;
+    await logRequestEnd({
+      requestId,
+      route: ROUTE,
+      userId,
+      environment,
+      modelUsed: selection.modelUsed,
+      tokensIn: null,
+      tokensOut: null,
+      costEstimateUsd: null,
+      status: "bad_request",
+      httpStatus: 400,
+      latencyMs,
+      errorCode: "bad_request",
+      errorMessage: "Invalid JSON body",
+    });
     return fail(ROUTE, "bad_request", "Invalid JSON body", 400, {
       model_used: selection.modelUsed,
-    });
+    }, requestId);
   }
 
   const safety = evaluateSafety({ route: ROUTE, taskType: TASK_TYPE, body });
   if (!safety.allowed) {
+    const latencyMs = Date.now() - startTime;
+    await logRequestEnd({
+      requestId,
+      route: ROUTE,
+      userId,
+      environment,
+      modelUsed: selection.modelUsed,
+      tokensIn: null,
+      tokensOut: null,
+      costEstimateUsd: null,
+      status: "guardrail_block",
+      httpStatus: 422,
+      latencyMs,
+      errorCode: safety.code,
+      errorMessage: safety.message,
+    });
     return fail(ROUTE, safety.code, safety.message, 422, {
       model_used: selection.modelUsed,
-    });
+    }, requestId);
   }
 
   // Phase 4A: Return stub response
+  const latencyMs = Date.now() - startTime;
+  await logRequestEnd({
+    requestId,
+    route: ROUTE,
+    userId,
+    environment,
+    modelUsed: selection.modelUsed,
+    tokensIn: null,
+    tokensOut: null,
+    costEstimateUsd: null,
+    status: "ok",
+    httpStatus: 200,
+    latencyMs,
+    errorCode: null,
+    errorMessage: null,
+  });
   return ok(
     ROUTE,
     {
@@ -108,6 +233,28 @@ export default async function handler(req: Request): Promise<Response> {
       reason_for_change: "No changes applied in stub response.",
       context_summary: contextSummary,
     },
-    { model_used: selection.modelUsed }
+    { model_used: selection.modelUsed },
+    requestId
   );
+  } catch (error) {
+    // Unexpected exception - log and return error
+    const latencyMs = Date.now() - startTime;
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    await logRequestEnd({
+      requestId,
+      route: ROUTE,
+      userId,
+      environment,
+      modelUsed: null,
+      tokensIn: null,
+      tokensOut: null,
+      costEstimateUsd: null,
+      status: "error",
+      httpStatus: 500,
+      latencyMs,
+      errorCode: "internal_error",
+      errorMessage,
+    });
+    return fail(ROUTE, "internal_error", "An unexpected error occurred", 500, undefined, requestId);
+  }
 }
