@@ -47,6 +47,11 @@ async function checkRateLimit(
   userIdentifier: string,
   config: RateLimitConfig
 ): Promise<string | null> {
+  // Debug log: Check environment variables (do not log actual tokens)
+  const hasUrl = Boolean(env.UPSTASH_REDIS_REST_URL);
+  const hasToken = Boolean(env.UPSTASH_REDIS_REST_TOKEN);
+  console.log(`rate_limit_env_check route=${route} userId=${userIdentifier} hasUrl=${hasUrl} hasToken=${hasToken}`);
+  
   // Skip rate limiting if Redis is not configured
   if (!env.UPSTASH_REDIS_REST_URL || !env.UPSTASH_REDIS_REST_TOKEN) {
     return null;
@@ -62,7 +67,9 @@ async function checkRateLimit(
       ["EXPIRE", key, config.windowSeconds.toString()],
     ];
 
-    const response = await fetch(env.UPSTASH_REDIS_REST_URL, {
+    // Upstash REST API requires /pipeline endpoint for nested array commands
+    const pipelineUrl = `${env.UPSTASH_REDIS_REST_URL}/pipeline`;
+    const response = await fetch(pipelineUrl, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${env.UPSTASH_REDIS_REST_TOKEN}`,
@@ -73,15 +80,38 @@ async function checkRateLimit(
 
     if (!response.ok) {
       // If Redis fails, allow the request (fail open)
-      console.error("Rate limit check failed:", response.statusText);
+      const statusText = response.statusText;
+      const status = response.status;
+      console.error(`Rate limit check failed: ${status} ${statusText}`);
       return null;
     }
 
-    const results = (await response.json()) as Array<{ result: number }>;
-    const count = results[0]?.result;
+    const responseData = await response.json();
+    
+    // Upstash pipeline returns array: [{result: <number>}, {result: <number>}]
+    // The INCR result is the FIRST item's result property
+    let count: number | undefined;
+    if (Array.isArray(responseData) && responseData.length > 0) {
+      const firstResult = responseData[0];
+      if (typeof firstResult === 'object' && firstResult !== null && 'result' in firstResult) {
+        count = firstResult.result;
+      }
+    }
 
-    if (count && count > config.maxRequests) {
+    // Debug logging for /api/chat only (do not log secrets)
+    if (route === "/api/chat") {
+      console.log(`rate_limit_debug route=${route} userId=${userIdentifier} status=${response.status} response=${JSON.stringify(responseData)}`);
+    }
+
+    // Strict numeric validation: block when count exceeds maxRequests
+    // e.g., count=31 > maxRequests=30 blocks the 31st request
+    if (typeof count === "number" && count > config.maxRequests) {
       return `Rate limit exceeded. Maximum ${config.maxRequests} request${config.maxRequests > 1 ? "s" : ""} per ${formatWindow(config.windowSeconds)}.`;
+    }
+
+    // If count is undefined/null, log warning but allow (fail open for parsing errors)
+    if (count === undefined || count === null) {
+      console.warn(`rate_limit_parse_error route=${route} userId=${userIdentifier} responseData=${JSON.stringify(responseData)}`);
     }
 
     return null; // Allowed
