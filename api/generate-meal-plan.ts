@@ -4,9 +4,11 @@ import { checkRateLimitMiddleware } from "../lib/rate-limit";
 import { loadContext } from "../lib/context";
 import { selectModel, type ModelTier, type TaskType } from "../lib/model-router";
 import { evaluateSafety } from "../lib/safety-guardrails";
-import { ok, fail, generateRequestId } from "../lib/response";
+import { ok, fail, failUI, failUIWithOriginalCode, generateRequestId } from "../lib/response";
+import { mapSafetyCodeToUIMessageCode, getUIMessage } from "../lib/ui-messages";
 import { logRequestStart, logRequestEnd, getEnvironment } from "../lib/logger";
 import { getUserIdFromRequest } from "../lib/supabase";
+import { checkRegenerationLimit } from "../lib/regeneration-tracker";
 
 export const config = { runtime: "edge" };
 
@@ -19,6 +21,7 @@ interface MealPlanRequest {
   dietaryRestrictions?: string[];
   avoidFoods?: string[];
   preferences?: string[];
+  is_regeneration?: boolean;
 }
 
 const ROUTE = "/api/generate-meal-plan";
@@ -44,6 +47,7 @@ export default async function handler(req: Request): Promise<Response> {
   const startTime = logRequestStart();
   const userId = getUserIdFromRequest(req);
   const environment = getEnvironment();
+  let isRegeneration = false;
 
   try {
   // Only allow POST
@@ -64,7 +68,7 @@ export default async function handler(req: Request): Promise<Response> {
       errorCode: "method_not_allowed",
       errorMessage: "Only POST method allowed",
     });
-    return fail(ROUTE, "method_not_allowed", "Only POST method allowed", 405, undefined, requestId);
+    return failUI(405, ROUTE, requestId, "method_not_allowed", "Only POST method allowed");
   }
 
   if (!env.AI_ENABLED) {
@@ -84,14 +88,7 @@ export default async function handler(req: Request): Promise<Response> {
       errorCode: "service_unavailable",
       errorMessage: "AI features are temporarily unavailable. Please try again later.",
     });
-    return fail(
-      ROUTE,
-      "service_unavailable",
-      "AI features are temporarily unavailable. Please try again later.",
-      503,
-      undefined,
-      requestId
-    );
+    return failUI(503, ROUTE, requestId, "ai_unavailable", "AI features are temporarily unavailable. Please try again later.");
   }
 
   if (isPayloadTooLarge(req, maxBodyBytes)) {
@@ -111,14 +108,7 @@ export default async function handler(req: Request): Promise<Response> {
       errorCode: "payload_too_large",
       errorMessage: "Request body exceeds size limit.",
     });
-    return fail(
-      ROUTE,
-      "payload_too_large",
-      "Request body exceeds size limit.",
-      413,
-      undefined,
-      requestId
-    );
+    return failUI(413, ROUTE, requestId, "payload_too_large", "Request body exceeds size limit.");
   }
 
   // Check rate limit
@@ -143,14 +133,6 @@ export default async function handler(req: Request): Promise<Response> {
     return rateLimitResponse;
   }
 
-  const context = await loadContext({ req, route: ROUTE });
-  const contextSummary = {
-    program_present: Boolean(context.active_program),
-    sessions_14d_count: context.workouts_14d.sessions.length,
-    sets_14d_count: context.workouts_14d.sets.length,
-    meals_7d_count: context.meals_7d.length,
-    weight_30d_count: context.weight_30d.length,
-  };
   const selection = selectModel({ route: ROUTE, taskType: TASK_TYPE, tier: MODEL_TIER });
   const FALLBACK_MODEL = selection.fallbackModel;
   const MAX_OUTPUT_TOKENS = selection.maxOutputTokens;
@@ -176,11 +158,58 @@ export default async function handler(req: Request): Promise<Response> {
       errorCode: "bad_request",
       errorMessage: "Invalid JSON body",
     });
-    return fail(ROUTE, "bad_request", "Invalid JSON body", 400, {
+    return failUI(400, ROUTE, requestId, "bad_request", "Invalid JSON body", {
       model_used: selection.modelUsed,
-    }, requestId);
+    });
   }
 
+  isRegeneration = body.is_regeneration === true;
+
+  // Check regeneration limit
+  const regenerationCheck = await checkRegenerationLimit(userId, isRegeneration);
+  if (!regenerationCheck.allowed) {
+    const latencyMs = Date.now() - startTime;
+    await logRequestEnd({
+      requestId,
+      route: ROUTE,
+      userId,
+      environment,
+      modelUsed: null,
+      tokensIn: null,
+      tokensOut: null,
+      costEstimateUsd: null,
+      status: "guardrail_block",
+      httpStatus: 200,
+      latencyMs,
+      errorCode: "regeneration_limit_exceeded",
+      errorMessage: regenerationCheck.message,
+      isRegeneration,
+    });
+    const uiMessage = getUIMessage("regen_coaching");
+    return ok(
+      ROUTE,
+      {
+        message: regenerationCheck.message,
+        regeneration_blocked: true,
+        ui: {
+          title: uiMessage.title,
+          message: uiMessage.message,
+          code: "regen_coaching",
+        },
+      },
+      undefined,
+      requestId
+    );
+  }
+
+  const context = await loadContext({ req, route: ROUTE });
+  const contextSummary = {
+    program_present: Boolean(context.active_program),
+    sessions_14d_count: context.workouts_14d.sessions.length,
+    sets_14d_count: context.workouts_14d.sets.length,
+    meals_7d_count: context.meals_7d.length,
+    weight_30d_count: context.weight_30d.length,
+  };
   const safety = evaluateSafety({ route: ROUTE, taskType: TASK_TYPE, body });
   if (!safety.allowed) {
     const latencyMs = Date.now() - startTime;
@@ -198,10 +227,12 @@ export default async function handler(req: Request): Promise<Response> {
       latencyMs,
       errorCode: safety.code,
       errorMessage: safety.message,
+      isRegeneration,
     });
-    return fail(ROUTE, safety.code, safety.message, 422, {
+    const uiCode = mapSafetyCodeToUIMessageCode(safety.code);
+    return failUIWithOriginalCode(422, ROUTE, requestId, safety.code, uiCode, safety.message, {
       model_used: selection.modelUsed,
-    }, requestId);
+    });
   }
 
   // Phase 4A: Return stub response
@@ -220,6 +251,7 @@ export default async function handler(req: Request): Promise<Response> {
     latencyMs,
     errorCode: null,
     errorMessage: null,
+    isRegeneration,
   });
   return ok(
     ROUTE,
@@ -254,7 +286,8 @@ export default async function handler(req: Request): Promise<Response> {
       latencyMs,
       errorCode: "internal_error",
       errorMessage,
+      isRegeneration,
     });
-    return fail(ROUTE, "internal_error", "An unexpected error occurred", 500, undefined, requestId);
+    return failUI(500, ROUTE, requestId, "server_error", "An unexpected error occurred");
   }
 }

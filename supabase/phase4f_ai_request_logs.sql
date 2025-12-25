@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS ai_request_logs (
   tokens_in int NULL,
   tokens_out int NULL,
   cost_estimate_usd numeric NULL,
+  is_regeneration boolean NULL,
   status text NOT NULL CHECK (status IN ('ok', 'error', 'rate_limited', 'guardrail_block', 'bad_request')),
   http_status int NOT NULL,
   latency_ms int NOT NULL,
@@ -24,6 +25,10 @@ CREATE INDEX IF NOT EXISTS idx_ai_request_logs_created_at ON ai_request_logs(cre
 CREATE INDEX IF NOT EXISTS idx_ai_request_logs_user_id_created_at ON ai_request_logs(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_ai_request_logs_route_created_at ON ai_request_logs(route, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_ai_request_logs_request_id ON ai_request_logs(request_id);
+
+-- Optional column for regeneration tracking
+ALTER TABLE ai_request_logs
+  ADD COLUMN IF NOT EXISTS is_regeneration boolean NULL;
 
 -- Enable RLS
 ALTER TABLE ai_request_logs ENABLE ROW LEVEL SECURITY;

@@ -17,6 +17,7 @@ export interface LogRequestParams {
   latencyMs: number;
   errorCode: string | null;
   errorMessage: string | null;
+  isRegeneration?: boolean | null;
 }
 
 /**
@@ -57,6 +58,7 @@ export async function logRequestEnd(params: LogRequestParams): Promise<void> {
       latency_ms: params.latencyMs,
       error_code: params.errorCode,
       error_message: params.errorMessage,
+      is_regeneration: params.isRegeneration ?? null,
     });
 
     if (error) {

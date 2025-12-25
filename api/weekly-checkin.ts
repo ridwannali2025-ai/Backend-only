@@ -4,7 +4,8 @@ import { checkRateLimitMiddleware } from "../lib/rate-limit";
 import { loadContext } from "../lib/context";
 import { selectModel, type ModelTier, type TaskType } from "../lib/model-router";
 import { evaluateSafety } from "../lib/safety-guardrails";
-import { ok, fail, generateRequestId } from "../lib/response";
+import { ok, fail, failUI, failUIWithOriginalCode, generateRequestId } from "../lib/response";
+import { mapSafetyCodeToUIMessageCode } from "../lib/ui-messages";
 import { logRequestStart, logRequestEnd, getEnvironment } from "../lib/logger";
 import { getUserIdFromRequest } from "../lib/supabase";
 
@@ -62,7 +63,7 @@ export default async function handler(req: Request): Promise<Response> {
       errorCode: "method_not_allowed",
       errorMessage: "Only POST method allowed",
     });
-    return fail(ROUTE, "method_not_allowed", "Only POST method allowed", 405, undefined, requestId);
+    return failUI(405, ROUTE, requestId, "method_not_allowed", "Only POST method allowed");
   }
 
   if (!env.AI_ENABLED) {
@@ -82,14 +83,7 @@ export default async function handler(req: Request): Promise<Response> {
       errorCode: "service_unavailable",
       errorMessage: "AI features are temporarily unavailable. Please try again later.",
     });
-    return fail(
-      ROUTE,
-      "service_unavailable",
-      "AI features are temporarily unavailable. Please try again later.",
-      503,
-      undefined,
-      requestId
-    );
+    return failUI(503, ROUTE, requestId, "ai_unavailable", "AI features are temporarily unavailable. Please try again later.");
   }
 
   if (isPayloadTooLarge(req, maxBodyBytes)) {
@@ -109,14 +103,7 @@ export default async function handler(req: Request): Promise<Response> {
       errorCode: "payload_too_large",
       errorMessage: "Request body exceeds size limit.",
     });
-    return fail(
-      ROUTE,
-      "payload_too_large",
-      "Request body exceeds size limit.",
-      413,
-      undefined,
-      requestId
-    );
+    return failUI(413, ROUTE, requestId, "payload_too_large", "Request body exceeds size limit.");
   }
 
   // Check rate limit
@@ -174,9 +161,9 @@ export default async function handler(req: Request): Promise<Response> {
       errorCode: "bad_request",
       errorMessage: "Invalid JSON body",
     });
-    return fail(ROUTE, "bad_request", "Invalid JSON body", 400, {
+    return failUI(400, ROUTE, requestId, "bad_request", "Invalid JSON body", {
       model_used: selection.modelUsed,
-    }, requestId);
+    });
   }
 
   const safety = evaluateSafety({ route: ROUTE, taskType: TASK_TYPE, body });
@@ -197,9 +184,10 @@ export default async function handler(req: Request): Promise<Response> {
       errorCode: safety.code,
       errorMessage: safety.message,
     });
-    return fail(ROUTE, safety.code, safety.message, 422, {
+    const uiCode = mapSafetyCodeToUIMessageCode(safety.code);
+    return failUIWithOriginalCode(422, ROUTE, requestId, safety.code, uiCode, safety.message, {
       model_used: selection.modelUsed,
-    }, requestId);
+    });
   }
 
   // Phase 4A: Return stub response
@@ -253,6 +241,6 @@ export default async function handler(req: Request): Promise<Response> {
       errorCode: "internal_error",
       errorMessage,
     });
-    return fail(ROUTE, "internal_error", "An unexpected error occurred", 500, undefined, requestId);
+    return failUI(500, ROUTE, requestId, "server_error", "An unexpected error occurred");
   }
 }

@@ -120,9 +120,13 @@ export async function checkRateLimitMiddleware(
   const errorMessage = await checkRateLimit(route, userIdentifier, config);
 
   if (errorMessage) {
-    // Import fail dynamically to avoid circular dependency
-    const { fail } = await import("./response");
-    return fail(route, "rate_limit_exceeded", errorMessage, 429);
+    // Import failUI dynamically to avoid circular dependency
+    const { failUI } = await import("./response");
+    const { generateRequestId } = await import("./response");
+    const requestId = generateRequestId();
+    // Determine if this is chat or action based on route
+    const code = route === "/api/chat" ? "rate_limited_chat" : "rate_limited_action";
+    return failUI(429, route, requestId, code, errorMessage);
   }
 
   return null; // Allowed
