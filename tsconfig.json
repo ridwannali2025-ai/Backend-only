@@ -9,9 +9,10 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
-    "moduleResolution": "node"
+    "moduleResolution": "node",
+    "types": ["node"]
   },
-  "include": ["api/**/*", "lib/**/*"],
+  "include": ["api/**/*", "lib/**/*", "scripts/**/*"],
   "exclude": ["node_modules", "dist"]
 }
 

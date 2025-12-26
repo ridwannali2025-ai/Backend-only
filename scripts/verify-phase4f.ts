@@ -61,7 +61,7 @@ async function assertRouteLogs(handler: (req: Request) => Promise<Response>, rou
   });
   try {
     const res = await handler(req);
-    const payload = await res.json();
+    const payload = (await res.json()) as { request_id?: string };
     // If we get a response, the route compiled and ran (logging is called)
     assert(
       payload.request_id !== undefined,

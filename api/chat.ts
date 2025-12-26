@@ -248,7 +248,9 @@ export default async function handler(req: Request): Promise<Response> {
     });
   }
 
+  console.log("GUARDRAIL_ENTER", { route: ROUTE, requestId });
   const safety = evaluateSafety({ route: ROUTE, taskType: TASK_TYPE, body });
+  console.log("GUARDRAIL_RESULT", { route: ROUTE, decision: safety.allowed ? "allowed" : "blocked" });
   if (!safety.allowed) {
     const latencyMs = Date.now() - startTime;
     await logRequestEnd({

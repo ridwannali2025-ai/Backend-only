@@ -10,6 +10,7 @@ export type UIMessageCode =
   | "ai_unavailable"
   | "safety_injury"
   | "safety_aggressive_cut"
+  | "safety_prohibited_content"
   | "regen_coaching"
   | "server_error";
 
@@ -63,6 +64,11 @@ export function getUIMessage(code: UIMessageCode): UIMessage {
         title: "Safety Concern",
         message: "For your safety, I can't help with requests that involve extreme changes. Please consult a qualified professional for guidance.",
       };
+    case "safety_prohibited_content":
+      return {
+        title: "Content Not Allowed",
+        message: "I can't provide instructions for creating weapons, explosives, or other harmful content. If you need help with something else, I'm here to assist.",
+      };
     case "regen_coaching":
       return {
         title: "Too Many Changes",
@@ -89,6 +95,9 @@ export function getUIMessage(code: UIMessageCode): UIMessage {
 export function mapSafetyCodeToUIMessageCode(safetyCode: string): UIMessageCode {
   if (safetyCode === "safety_medical_advice") {
     return "safety_injury";
+  }
+  if (safetyCode === "safety_prohibited_content") {
+    return "safety_prohibited_content";
   }
   if (
     safetyCode === "safety_eating_disorder" ||

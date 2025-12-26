@@ -32,6 +32,21 @@ const MEDICAL_ADVICE_PATTERNS = [
   /injury\s*advice/i,
 ];
 
+// Prohibited domains: weapons, explosives, illegal activities
+const PROHIBITED_DOMAIN_PATTERNS = [
+  /\b(bomb|explosive|dynamite|grenade|detonat|incendiary|molotov|pipe\s*bomb|improvised\s*explosive)\b/i,
+  /\b(weapon|gun|firearm|rifle|pistol|ammunition|bullet|ammo)\b/i,
+  /\b(hack|hacking|cyber\s*attack|ddos|malware|virus|trojan)\b/i,
+  /\b(poison|toxic\s*substance|chemical\s*weapon)\b/i,
+  /\b(illegal\s*drug|manufactur.*drug|synthesiz.*drug)\b/i,
+];
+
+// Instructional intent patterns: requests for procedures/instructions
+const INSTRUCTIONAL_INTENT_PATTERNS = [
+  /\b(how\s*to|step\s*by\s*step|instructions?|guide|tutorial|recipe\s*for|make\s*a|build\s*a|create\s*a|construct\s*a)\b/i,
+  /\b(teach\s*me|show\s*me|explain\s*how|walk\s*me\s*through)\b/i,
+];
+
 function collectStrings(value: unknown, acc: string[] = []): string[] {
   if (typeof value === "string") {
     acc.push(value);
@@ -171,6 +186,22 @@ export function evaluateSafety(input: {
       code: "safety_volume_increase",
       message:
         "For safety, I can't help with increasing weekly training volume by more than 20%.",
+    };
+  }
+
+  // Semantic safety check: block only when BOTH prohibited domain AND instructional intent are present
+  const hasProhibitedDomain = hasPattern(text, PROHIBITED_DOMAIN_PATTERNS);
+  const hasInstructionalIntent = hasPattern(text, INSTRUCTIONAL_INTENT_PATTERNS);
+
+  // Allow cooking/food-related content even if it has instructional intent
+  const isCookingContext = /\b(cook|recipe|food|meal|ingredient|kitchen|culinary|bake|roast|grill|fry|boil|steam)\b/i.test(text);
+
+  if (hasProhibitedDomain && hasInstructionalIntent && !isCookingContext) {
+    return {
+      allowed: false,
+      code: "safety_prohibited_content",
+      message:
+        "I can't provide instructions for creating weapons, explosives, or other harmful content. If you need help with something else, I'm here to assist.",
     };
   }
 
