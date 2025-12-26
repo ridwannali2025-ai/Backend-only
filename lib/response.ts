@@ -30,6 +30,7 @@ export function generateRequestId(): string {
 
 /**
  * Create a JSON response with CORS headers
+ * Exported for custom error responses with direct UI objects
  */
 export function jsonResponse(envelope: ResponseEnvelope, status: number = 200): Response {
   return new Response(JSON.stringify(envelope), {

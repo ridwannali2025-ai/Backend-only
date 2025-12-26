@@ -19,10 +19,12 @@ const result = evaluateSafety({
 });
 
 if (result.allowed) {
-  console.log("PASS: Safe cooking request was allowed");
+  console.log("✅ PASS: Safe cooking request was allowed");
   process.exit(0);
 } else {
-  console.error(`FAIL: Safe cooking request was blocked. Code: ${result.code}, Message: ${result.message}`);
+  const code = result.ui?.code || "unknown";
+  const message = result.ui?.message || result.reason || "unknown";
+  console.error(`❌ FAIL: Safe cooking request was blocked. Code: ${code}, Message: ${message}`);
   process.exit(1);
 }
 

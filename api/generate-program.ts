@@ -4,7 +4,8 @@ import { checkRateLimitMiddleware } from "../lib/rate-limit";
 import { loadContext } from "../lib/context";
 import { selectModel, type ModelTier, type TaskType } from "../lib/model-router";
 import { evaluateSafety } from "../lib/safety-guardrails";
-import { ok, fail, failUI, failUIWithOriginalCode, generateRequestId } from "../lib/response";
+import { ok, fail, failUI, failUIWithOriginalCode, generateRequestId, jsonResponse } from "../lib/response";
+import type { ResponseEnvelope } from "../lib/response";
 import { mapSafetyCodeToUIMessageCode, getUIMessage } from "../lib/ui-messages";
 import { logRequestStart, logRequestEnd, getEnvironment } from "../lib/logger";
 import { getUserIdFromRequest } from "../lib/supabase";
@@ -218,9 +219,14 @@ export default async function handler(req: Request): Promise<Response> {
     meals_7d_count: context.meals_7d.length,
     weight_30d_count: context.weight_30d.length,
   };
+  
+  // Check safety guardrails BEFORE calling OpenAI
   const safety = evaluateSafety({ route: ROUTE, taskType: TASK_TYPE, body });
   if (!safety.allowed) {
     const latencyMs = Date.now() - startTime;
+    const errorCode = safety.ui?.code || "safety_blocked";
+    const errorMessage = safety.reason || safety.ui?.message || "Request blocked by safety guardrails";
+    
     await logRequestEnd({
       requestId,
       route: ROUTE,
@@ -233,12 +239,36 @@ export default async function handler(req: Request): Promise<Response> {
       status: "guardrail_block",
       httpStatus: 422,
       latencyMs,
-      errorCode: safety.code,
-      errorMessage: safety.message,
+      errorCode,
+      errorMessage,
       isRegeneration,
     });
-    const uiCode = mapSafetyCodeToUIMessageCode(safety.code);
-    return failUIWithOriginalCode(422, ROUTE, requestId, safety.code, uiCode, safety.message, {
+    
+    // Return HTTP 422 with error.ui from safety result
+    if (safety.ui) {
+      const envelope: ResponseEnvelope = {
+        request_id: requestId,
+        route: ROUTE,
+        model_used: selection.modelUsed,
+        tokens_in: null,
+        tokens_out: null,
+        cost_estimate_usd: null,
+        result: null,
+        error: {
+          code: safety.ui.code,
+          message: errorMessage,
+          ui: {
+            title: safety.ui.title,
+            message: safety.ui.message,
+            code: safety.ui.code,
+          },
+        },
+      };
+      return jsonResponse(envelope, 422);
+    }
+    
+    // Fallback if ui is not provided
+    return failUI(422, ROUTE, requestId, "safety_aggressive_cut", errorMessage, {
       model_used: selection.modelUsed,
     });
   }

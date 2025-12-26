@@ -19,10 +19,12 @@ const result = evaluateSafety({
 });
 
 if (!result.allowed) {
-  console.log(`PASS: Unsafe request was blocked. Code: ${result.code}`);
+  const code = result.ui?.code || "unknown";
+  const message = result.ui?.message || result.reason || "unknown";
+  console.log(`✅ PASS: Unsafe request was blocked. Code: ${code}, Message: ${message}`);
   process.exit(0);
 } else {
-  console.error("FAIL: Unsafe request was allowed (should be blocked)");
+  console.error("❌ FAIL: Unsafe request was allowed (should be blocked)");
   process.exit(1);
 }
 

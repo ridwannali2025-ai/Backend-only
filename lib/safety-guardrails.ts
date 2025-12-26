@@ -1,6 +1,12 @@
-export type SafetyDecision =
-  | { allowed: true }
-  | { allowed: false; code: string; message: string };
+export interface SafetyDecision {
+  allowed: boolean;
+  reason?: string;
+  ui?: {
+    title: string;
+    message: string;
+    code: string;
+  };
+}
 
 export const SAFETY_LIMITS = {
   maxCalorieDeficitPerDay: 1000,
@@ -156,36 +162,48 @@ export function evaluateSafety(input: {
   if (hasPattern(text, EATING_DISORDER_PATTERNS)) {
     return {
       allowed: false,
-      code: "safety_eating_disorder",
-      message:
-        "Sorry, I can't help with requests that involve eating disorder behaviors. If you need support, please reach out to a qualified professional.",
+      reason: "Eating disorder patterns detected",
+      ui: {
+        title: "Safety Concern",
+        message: "I can't help with requests that involve eating disorder behaviors. If you need support, please reach out to a qualified professional.",
+        code: "safety_eating_disorder",
+      },
     };
   }
 
   if (hasPattern(text, MEDICAL_ADVICE_PATTERNS)) {
     return {
       allowed: false,
-      code: "safety_medical_advice",
-      message:
-        "Sorry, I can't provide medical or injury advice. Please consult a licensed clinician.",
+      reason: "Medical advice patterns detected",
+      ui: {
+        title: "Safety Concern",
+        message: "I can't provide medical or injury advice. Please consult a licensed healthcare professional.",
+        code: "safety_medical_advice",
+      },
     };
   }
 
   if (exceedsCalorieDeficit(input.body)) {
     return {
       allowed: false,
-      code: "safety_calorie_deficit",
-      message:
-        "For safety, I can't help with a calorie deficit above 1000 calories per day.",
+      reason: "Calorie deficit exceeds safety limit",
+      ui: {
+        title: "Safety Concern",
+        message: "For your safety, I can't help with a calorie deficit above 1000 calories per day. Please consult a qualified professional for guidance.",
+        code: "safety_calorie_deficit",
+      },
     };
   }
 
   if (exceedsWeeklyVolumeIncrease(input.body)) {
     return {
       allowed: false,
-      code: "safety_volume_increase",
-      message:
-        "For safety, I can't help with increasing weekly training volume by more than 20%.",
+      reason: "Training volume increase exceeds safety limit",
+      ui: {
+        title: "Safety Concern",
+        message: "For your safety, I can't help with increasing weekly training volume by more than 20%. Please consult a qualified professional for guidance.",
+        code: "safety_volume_increase",
+      },
     };
   }
 
@@ -199,9 +217,12 @@ export function evaluateSafety(input: {
   if (hasProhibitedDomain && hasInstructionalIntent && !isCookingContext) {
     return {
       allowed: false,
-      code: "safety_prohibited_content",
-      message:
-        "I can't provide instructions for creating weapons, explosives, or other harmful content. If you need help with something else, I'm here to assist.",
+      reason: "Prohibited content with instructional intent detected",
+      ui: {
+        title: "Content Not Allowed",
+        message: "I can't provide instructions for creating weapons, explosives, or other harmful content. If you need help with something else, I'm here to assist.",
+        code: "safety_prohibited_content",
+      },
     };
   }
 
